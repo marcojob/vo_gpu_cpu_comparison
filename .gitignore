@@ -131,3 +131,6 @@ dmypy.json
 # Datasets
 datasets/*
 !datasets/README.md
+
+# Vim swp files
+*.swp
