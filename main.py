@@ -1,9 +1,9 @@
-from src.datasets_helper import DatasetsHelper
+from src.vo import VisualOdometry
 
 def main():
-    dh = DatasetsHelper(name='Malaga')
-    for i in dh.images:
-        print(i)
+    dataset = "KITTI"
+    vo_gpu = VisualOdometry("gpu", "SURF", dataset)
+    vo_gpu.start(plot=True)
 
 if __name__ == '__main__':
     main()

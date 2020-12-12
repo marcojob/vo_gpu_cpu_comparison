@@ -1,49 +1,41 @@
 import cv2
 import time
 import numpy as np
-from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 
-SOURCE = 'KITTI'
-DATASET_MOV = 'datasets/autobahn_0.MOV'
-DATASET_KITTI = 'datasets/kitti00/kitti/00/image_1/'
-FRAME_SIZE = (1241, 376)
-RESIZED_FRAME_SIZE_MOV = (960, 540)
-RESISED_FRAME_SIZE_KITTI = None  # (1241, 376)
-RESIZED_FRAME_SIZE = None
-DETECTOR = 'SURF'
-MAX_NUM_FEATURES = 5000
-MIN_NUM_FEATURES = 500
-USE_CLAHE = False
-MIN_MATCHING_DIFF = 1
-PLOT_LIM = 5000
-
+from src.datasets_helper import DatasetsHelper
+from src.utils import *
 
 class VisualOdometry:
-    def __init__(self, detector=DETECTOR):
-        # Save detector type
-        self.DETECTOR = DETECTOR
+    def __init__(self, cpu_or_gpu, detector, dataset):
+        # Choose detector
+        self.detector_name = detector
+
+        # Determine if to run pipeline on GPU 
+        self.on_gpu = True if cpu_or_gpu == "gpu" else False
+
+        # Datasets helper
+        self.dh = DatasetsHelper(dataset)
+        self.resized_frame_size = np.array(self.dh.resized_frame_size)
+        self.intrinsic_matrix = np.array(self.dh.intrinsic_matrix)
 
         # Initialize detector
-        if detector == 'FAST':
-            self.detector = cv2.cuda_FastFeatureDetector.create(
-                threshold=75, nonmaxSuppression=True)
-        elif detector == 'SIFT':
+        if self.detector_name == 'FAST':
+            self.detector = cv2.cuda_FastFeatureDetector.create(threshold=75, nonmaxSuppression=True)
+        elif self.detector_name == 'SIFT':
             self.detector = cv2.cuda.xfeatures2d.SIFT_create(MAX_NUM_FEATURES) # FIX
-        elif detector == 'SURF':
+        elif self.detector_name == 'SURF':
             self.detector = cv2.cuda.SURF_CUDA_create(300, _nOctaveLayers=2)
-        elif detector == 'ORB':
+        elif self.detector_name == 'ORB':
             self.detector = cv2.cuda_ORB.create(nfeatures=MAX_NUM_FEATURES)
-        elif detector == 'SHI-TOMASI':
-            feature_params = dict( maxCorners = 1000,
-                                   qualityLevel = 0.3,
-                                   minDistance = 7,
-                                   blockSize = 7 )
+        elif self.detector_name == 'SHI-TOMASI':
             self.detector = cv2.cuda.createGoodFeaturesToTrackDetector(cv2.CV_8UC1, feature_params['maxCorners'], \
                                            feature_params['qualityLevel'], feature_params['minDistance'], \
                                            feature_params['blockSize'])
-        elif detector == 'REGULAR_GRID':
+        elif self.detector_name == 'REGULAR_GRID':
             self.init_regular_grid_detector()
+        else:
+            assert 1 == 0, "Detector not available"
 
         # Initialize clahe filter
         self.clahe = cv2.cuda.createCLAHE(clipLimit=5.0)
@@ -84,67 +76,45 @@ class VisualOdometry:
         self.sca_p = None
         self.cloud_p = None
 
-        fig = plt.figure()
-        self.ax = Axes3D(fig)
-
         # Masks
         self.mask_ch = None
 
         # Cloud
         self.cloud_all = None
+    
+    def start(self, plot=True):
+        # Get first frame
+        frame = next(self.dh.images)
 
-    def init_dataset(self):
-        global RESIZED_FRAME_SIZE
-        if SOURCE == 'MOV':
-            # Init video capture with video
-            self.cap = cv2.VideoCapture(DATASET_MOV)
+        # Process first frame
+        self.process_first_frame(frame)
 
-            # Resize size
-            RESIZED_FRAME_SIZE = RESIZED_FRAME_SIZE_MOV
+        # Loop through frames
+        for frame in self.dh.images:
+                # Main frame processing
+                self.process_frame(frame)
 
-            # Intrinsic matrix, wrong one
-            self.intrinsic_matrix = np.array([[7.188560000000e+02, 0.0, 6.071928000000e+02],
-                                              [0.0, 7.188560000000e+02, 1.852157000000e+02],
-                                              [0.0, 0.0, 1.0]]);
+                # Plotting
+                frame = self.cur_c_frame
+                frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts, self.mask_ch)
+                frame = self.draw_framerate(frame, self.framerate)
 
-        elif SOURCE == 'KITTI':
-            self.img_cnt = 0
+                # Show img
+                cv2.imshow("Video", frame)
+                if cv2.waitKey(1) == 27:
+                    break
 
-            # Intrinsic matrix
-            self.intrinsic_matrix = np.array([[7.188560000000e+02, 0.0, 6.071928000000e+02],
-                                              [0.0, 7.188560000000e+02, 1.852157000000e+02],
-                                              [0.0, 0.0, 1.0]]);
+        # Release the capture
+        cap.release()
 
-            # Resize size
-            RESIZED_FRAME_SIZE = RESISED_FRAME_SIZE_KITTI
+        # Destroy all windows
+        cv2.destroyAllWindows()
 
-    def get_frame(self, skip_frames=0):
-        if SOURCE == 'MOV':
-            # Skip some frames
-            for s in range(skip_frames):
-                self.cap.read()
 
-            # Read from capture
-            ret, frame = self.cap.read()
 
-        elif SOURCE == 'KITTI':
-            # Skip some frames
-            for s in range(skip_frames):
-                cv2.imread(DATASET_KITTI + "{:06d}.png".format(self.img_cnt))
-                self.img_cnt += 1
 
-            # Read img
-            ret, frame = 1, cv2.imread(DATASET_KITTI + "{:06d}.png".format(self.img_cnt))
-
-            # Increase counter
-            self.img_cnt += 1
-
-        return ret, frame
 
     def init(self):
-        # Init datasets
-        self.init_dataset()
-
         # Handle first frame
         ret, frame = self.get_frame()
 
@@ -226,8 +196,8 @@ class VisualOdometry:
         self.gf.upload(frame)
 
         # Resize frame
-        if not RESIZED_FRAME_SIZE is None:
-            self.gf = cv2.cuda.resize(self.gf, RESIZED_FRAME_SIZE)
+        # if not self.resized_frame_size is None:
+        #    self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
 
         # Convert to gray
         self.gf = cv2.cuda.cvtColor(self.gf, cv2.COLOR_BGR2GRAY)
@@ -354,8 +324,8 @@ class VisualOdometry:
         # if self.pos_p is None:
             plt.plot(self.x_data, self.z_data)
 
-            s = self.ax.scatter(cloud[:, 0], cloud[:, 2], -cloud[:, 1])
-            self.sca_p = s
+       #     s = self.ax.scatter(cloud[:, 0], cloud[:, 2], -cloud[:, 1])
+       #     self.sca_p = s
         else:
             # Set data
             plt.plot(self.x_data, self.z_data)
@@ -367,7 +337,7 @@ class VisualOdometry:
         BORDER = 100
         plt.xlim(min(self.x_data) - BORDER, max(self.x_data) + BORDER)
         plt.ylim(min(self.z_data) - BORDER, max(self.z_data) + BORDER)
-        self.ax.set_zlim(min(self.y_data) - BORDER, max(self.y_data) + BORDER)
+        # self.ax.set_zlim(min(self.y_data) - BORDER, max(self.y_data) + BORDER)
         # plt.xlim(-100, 100)
         # plt.ylim(-100, 100)
         plt.draw()
@@ -422,8 +392,9 @@ class VisualOdometry:
         self.gf.upload(frame)
 
         # Resize frame
-        if not RESIZED_FRAME_SIZE is None:
-            self.gf = cv2.cuda.resize(self.gf, RESIZED_FRAME_SIZE)
+        # if not self.resized_frame_size is None:
+        #    print(None)
+        #     self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
 
         # Convert to gray
         self.gf = cv2.cuda.cvtColor(self.gf, cv2.COLOR_BGR2GRAY)
@@ -454,17 +425,16 @@ class VisualOdometry:
 
     def detect_new_features(self, img):
         # Detect features using selected detector
-        if self.DETECTOR == 'FAST' or self.DETECTOR == 'ORB':
+        if self.detector_name == 'FAST' or self.detector_name == 'ORB':
             g_kps = self.detector.detectAsync(img, None)
-        elif self.DETECTOR == 'SURF':
+        elif self.detector_name == 'SURF':
             g_kps = self.detector.detect(img, None)
-        elif self.DETECTOR == 'SHI-TOMASI':
+        elif self.detector_name == 'SHI-TOMASI':
             g_kps = self.detector.detect(img)
-        elif self.DETECTOR == 'REGULAR_GRID':
+        elif self.detector_name == 'REGULAR_GRID':
             # Not very efficient, but regular grid comp. is low
             img_c = img.download()
             g_kps = self.regular_grid_detector(img_c)
-
         return g_kps
 
     def regular_grid_detector(self, img):
@@ -475,8 +445,8 @@ class VisualOdometry:
         self.regular_grid_max_pts = MAX_NUM_FEATURES
 
         features = list()
-        height = float(FRAME_SIZE[1])
-        width = float(FRAME_SIZE[0])
+        height = float(self.dh.size[1])
+        width = float(self.dh.size[0])
         k = height/width
 
         n_col = int(np.sqrt(self.regular_grid_max_pts/k))
@@ -495,13 +465,13 @@ class VisualOdometry:
         self.gpu_rg = gpu_f
 
     def convert_fts_gpu_to_cpu(self, g_fts):
-        if self.DETECTOR == 'FAST' or self.DETECTOR == 'ORB':
+        if self.detector_name == 'FAST' or self.detector_name == 'ORB':
             c_fts = self.detector.convert(g_fts)
             c_fts = np.array([x.pt for x in c_fts], dtype=np.float32)
-        elif self.DETECTOR == 'SURF':
+        elif self.detector_name == 'SURF':
             c_fts = cv2.cuda_SURF_CUDA.downloadKeypoints(self.detector, g_fts)
             c_fts = np.array([x.pt for x in c_fts], dtype=np.float32)
-        elif self.DETECTOR == 'SHI-TOMASI' or self.DETECTOR == 'REGULAR_GRID':
+        elif self.detector_name == 'SHI-TOMASI' or self.detector_name == 'REGULAR_GRID':
             # Not very efficient, but regular grid comp. is low
             c_fts = g_fts.download()
 
