@@ -81,14 +81,20 @@ class VisualOdometry:
         self.z_data = list()
 
         # Framerate tracking
-        self.framerate_list = []
+        self.framerate_window = 100
+        self.framerate_list = [30.0 for i in range(self.framerate_window)]
         self.framerate = 0.0
+        self.framecount = 0
+
+        # N Features tracking
+        self.nfeatures_window = 20 # frames to track
+        self.nfeatures_list = [0.0 for i in range(self.nfeatures_window)]
 
         # Masks
         self.mask_ch = None
 
         # Cloud
-        self.cloud_all = None
+        self.cloud = None
     
     def start(self, plot=True):
         # Get first frame
@@ -101,12 +107,14 @@ class VisualOdometry:
         for frame in self.dh.images:
                 # Main frame processing
                 self.process_frame(frame)
+                self.framecount += 1
 
                 # Plotting
                 frame = self.cur_rgb_c_frame
                 frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts, self.mask_ch)
                 
-                self.ph.plot(frame, self.framerate) 
+                self.ph.plot(frame, self.framerate, self.cloud, self.nfeatures_list, self.framecount) 
+
     
         # Release the capture
         cap.release()
@@ -226,6 +234,11 @@ class VisualOdometry:
 
             # Triangulate points
             self.cloud = self.triangulate_points(self.cur_r, self.cur_t, r, t)
+
+        # Update the number of features tracked
+        self.nfeatures_list.append(ret)
+        if len(self.nfeatures_list) > self.nfeatures_window:
+            del self.nfeatures_list[0]
 
         # Download frame
         self.d_frame = self.gf.download()
