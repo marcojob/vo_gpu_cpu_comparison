@@ -46,7 +46,7 @@ class DatasetsHelper():
     @property
     def size(self):
         """
-        Convenienti shape propery handling resizing
+        Convenient shape propery handling resizing
         """
         if self.resized_frame_size:
             return self.resized_frame_size

@@ -1,4 +1,6 @@
 import matplotlib.pyplot as plt
+plt.rcParams['axes.labelsize'] = 8
+plt.rcParams['axes.titlesize'] = 8
 import threading
 import numpy as np
 
@@ -21,19 +23,21 @@ class PlotHelper():
          # Start the process
          self.p.start()
 
-    def plot(self, frame, framerate, cloud, nfeatures, framecount):
+    def plot(self, frame, framerate, cloud, nfeatures, framecount, trans):
         # When giving a list into the queue, it actually only gives the pointer
         # therefore you need to create a copy in order to be ensure that content is
         # not modified
         cp_nfeatures = deepcopy(nfeatures)
+        cp_trans = deepcopy(trans)
         
         # This method takes the new data and puts it in the queue
         data = {"frame": frame,
                 "framerate": framerate,
                 "cloud": cloud,
                 "nfeatures": cp_nfeatures,
-                "framecount": framecount}
-        
+                "framecount": framecount,
+                "trans": cp_trans}
+
         # Put it in the queue
         self.q.put(data)
 
@@ -49,6 +53,7 @@ class PlotHelper():
                     cloud = data.get("cloud", np.array([]))
                     nfeatures = data.get("nfeatures", [])
                     framecount = data.get("framecount", None)
+                    trans = data.get("trans", [])
 
                     # Plot the current frame
                     if not self.current_image_p:
@@ -62,6 +67,19 @@ class PlotHelper():
                         self.nfeatures_p, = self.nfeatures_ax.plot(frame_axis, nfeatures)
                     else:
                         self.nfeatures_p.set_ydata(nfeatures)
+                    
+                    # Plot the full trajectory
+                    trans_x = trans[0]
+                    trans_y = trans[1]
+                    if not self.full_trajectory_p:
+                        self.full_trajectory_p, = self.full_trajectory_ax.plot(trans_x, trans_y)
+                    else:
+                        ax_min = min(min(trans_x), min(trans_y))
+                        ax_max = max(max(trans_x), max(trans_y))
+                        self.full_trajectory_p.set_xdata(trans_x)
+                        self.full_trajectory_p.set_ydata(trans_y)
+                        self.full_trajectory_ax.set_xlim(ax_min, ax_max)
+                        self.full_trajectory_ax.set_ylim(ax_min, ax_max)
 
                     # Draw the fig again
                     self.fig.canvas.draw_idle()
@@ -96,6 +114,11 @@ class PlotHelper():
             self.nfeatures_ax.set_title("# tracked landmarks over last 20 frames")
             self.nfeatures_ax.set_ylim(0, 1500)
             self.nfeatures_p = None
+
+            # Prepare the full trajectory plot
+            self.full_trajectory_ax = self.fig.add_subplot(2, 4, 6)
+            self.full_trajectory_ax.set_title("Full trajectory")
+            self.full_trajectory_p = None
 
             # Start the plot update thread
             data_thread = threading.Thread(target=self._update, args=(q,))            

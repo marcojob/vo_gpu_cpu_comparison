@@ -73,7 +73,7 @@ class VisualOdometry:
         self.cur_r = np.eye(3) # Current rotation
         self.cur_t = np.zeros((3, 1)) # Current translation
         self.all_r = [self.cur_r]
-        self.all_t = [self.cur_t]
+        self.all_t = [[0.0],[0.0],[0.0]] # XYZ convention
 
         # Global pos data
         self.x_data = list()
@@ -113,11 +113,7 @@ class VisualOdometry:
                 frame = self.cur_rgb_c_frame
                 frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts, self.mask_ch)
                 
-                self.ph.plot(frame, self.framerate, self.cloud, self.nfeatures_list, self.framecount) 
-
-    
-        # Release the capture
-        cap.release()
+                self.ph.plot(frame, self.framerate, self.cloud, self.nfeatures_list, self.framecount, self.all_t) 
 
     def draw_fts(self, frame, fts):
         size = 3
@@ -231,6 +227,10 @@ class VisualOdometry:
             self.scale = 1.0 / np.linalg.norm(t)
             self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
             self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
+            self.all_t[0].append(self.cur_t[0])
+            self.all_t[1].append(self.cur_t[2])
+            self.all_t[2].append(self.cur_t[1])
+            self.all_r.append(self.cur_r)
 
             # Triangulate points
             self.cloud = self.triangulate_points(self.cur_r, self.cur_t, r, t)
