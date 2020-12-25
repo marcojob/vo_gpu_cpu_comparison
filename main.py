@@ -1,7 +1,7 @@
 from src.vo import VisualOdometry
 
 def main():
-    dataset = "Malaga" #KITTI"
+    dataset =  "Autobahn" #"Malaga" #KITTI"
     vo_gpu = VisualOdometry("gpu", "SURF", dataset)
     vo_gpu.start(plot=True)
 

@@ -17,7 +17,9 @@ class DatasetsHelper():
         assert self.intrinsic_matrix != None, "Intrinsic matrix not in config"
 
         self.images_dir = config.get("images_dir", None)
-        assert self.images_dir != None, "Images dir not in config"
+        self.video_file = config.get("video_file", None)
+
+        assert self.images_dir != None or self.video_file != None, "Images dir or video file not in config"
         
         self.frame_size = config.get("frame_size", None)
         assert self.frame_size != None, "Frame size not in config"
@@ -33,15 +35,23 @@ class DatasetsHelper():
         """
         Iterates over all images in the dir and creates a generator as property
         """
-        fl = glob.glob(str(self.dataset_dir / self.images_dir) + "/*")
-        for f in sorted(fl):
-            if self.images_pattern:
-                if re.search(self.images_pattern, f):
+        if self.images_dir:
+            fl = glob.glob(str(self.dataset_dir / self.images_dir) + "/*")
+            for f in sorted(fl):
+                if self.images_pattern:
+                    if re.search(self.images_pattern, f):
+                        self.i += 1
+                        yield cv2.imread(f)
+                else:
                     self.i += 1
                     yield cv2.imread(f)
-            else:
-                self.i += 1
-                yield cv2.imread(f)
+        elif self.video_file:
+            cap = cv2.VideoCapture(str(self.dataset_dir / self.video_file))
+            ret = 1
+            while ret:
+                ret, img = cap.read()
+                yield img
+
 
     @property
     def size(self):
