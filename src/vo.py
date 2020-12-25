@@ -16,7 +16,10 @@ class VisualOdometry:
 
         # Datasets helper
         self.dh = DatasetsHelper(dataset)
-        self.resized_frame_size = np.array(self.dh.resized_frame_size)
+        if self.dh.resized_frame_size:
+            self.resized_frame_size = np.array(self.dh.resized_frame_size)
+        else:
+            self.resized_frame_size = None
         self.intrinsic_matrix = np.array(self.dh.intrinsic_matrix)
 
         # Initialize detector
@@ -95,67 +98,14 @@ class VisualOdometry:
                 self.process_frame(frame)
 
                 # Plotting
+                # Prepare frame
                 frame = self.cur_c_frame
                 frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts, self.mask_ch)
-                frame = self.draw_framerate(frame, self.framerate)
+                
 
-                # Show img
-                cv2.imshow("Video", frame)
-                if cv2.waitKey(1) == 27:
-                    break
-
+    
         # Release the capture
         cap.release()
-
-        # Destroy all windows
-        cv2.destroyAllWindows()
-
-
-
-
-
-    def init(self):
-        # Handle first frame
-        ret, frame = self.get_frame()
-
-        # Process frame
-        self.process_first_frame(frame)
-
-        # Frame counter
-        frame_counter = 0
-
-        while True:
-            # Read the frames
-            ret, frame = self.get_frame(skip_frames=0)
-            if ret:
-                # Main frame processing
-                self.process_frame(frame)
-
-                # Create copy for plotting
-                frame = self.cur_c_frame
-
-                # Draw OF
-                frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts, self.mask_ch)
-
-                # Draw framerate
-                frame = self.draw_framerate(frame, self.framerate)
-
-                # Increment frame counter
-                frame_counter += 1
-                if frame_counter == 300:
-                    exit()
-
-                # Show img
-                cv2.imshow("Video", frame)
-
-            if cv2.waitKey(1) == 27:
-                break
-
-        # Release the capture
-        cap.release()
-
-        # Destroy all windows
-        cv2.destroyAllWindows()
 
     def draw_fts(self, frame, fts):
         size = 3
@@ -196,8 +146,9 @@ class VisualOdometry:
         self.gf.upload(frame)
 
         # Resize frame
-        # if not self.resized_frame_size is None:
-        #    self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
+        if not self.resized_frame_size is None:
+            self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
+            self.cur_rgb_c_frame = self.gf.download()
 
         # Convert to gray
         self.gf = cv2.cuda.cvtColor(self.gf, cv2.COLOR_BGR2GRAY)
@@ -257,20 +208,15 @@ class VisualOdometry:
         # Recover pose
         ret, r, t, self.mask_ch = cv2.recoverPose(E, self.cur_c_fts, self.pre_c_fts, self.intrinsic_matrix, mask)
         if ret > 10:
-        #     # Only keep mask of features
-        #     tmp_cur_fts = list()
-        #     tmp_pre_fts = list()
-        #     discard = 0
-        #     use = 0
-        #     for i, m in enumerate(self.mask_ch):
-        #         if m[0]:
-        #             tmp_cur_fts.append(self.cur_c_fts[i])
-        #             tmp_pre_fts.append(self.pre_c_fts[i])
-        #             use += 1
-        #         else:
-        #             discard += 1
-        #     self.cur_c_fts = np.array(tmp_cur_fts)
-        #     self.pre_c_fts = np.array(tmp_pre_fts)
+            # Only keep mask of features
+            tmp_cur_fts = list()
+            tmp_pre_fts = list()
+            for i, m in enumerate(self.mask_ch):
+                if m[0]:
+                    tmp_cur_fts.append(self.cur_c_fts[i])
+                    tmp_pre_fts.append(self.pre_c_fts[i])
+            self.cur_c_fts = np.array(tmp_cur_fts)
+            self.pre_c_fts = np.array(tmp_pre_fts)
 
             # Continue tracking of movement
             self.scale = 1.0 / np.linalg.norm(t)
@@ -279,9 +225,6 @@ class VisualOdometry:
 
             # Triangulate points
             self.cloud = self.triangulate_points(self.cur_r, self.cur_t, r, t)
-
-            # Keep track for plotting
-            self.plot_cloud(self.cur_r, self.cur_t, self.cloud, self.mask_ch, add_to_cloud)
 
         # Download frame
         self.d_frame = self.gf.download()
@@ -299,50 +242,6 @@ class VisualOdometry:
         cloud = cv2.convertPointsFromHomogeneous(cloud_homo.T).reshape(-1, 3)
 
         return cloud
-
-    def plot_cloud(self, cur_r, cur_t, cloud, mask, add_to_cloud=False):
-        # Append r, t data
-        self.all_r.append(cur_r)
-        self.all_t.append(cur_t)
-
-        # Append global position data
-        self.x_data.append(cur_t[0])
-        self.y_data.append(cur_t[1])
-        self.z_data.append(cur_t[2])
-
-        # Cloud
-        cloud = np.dot(cloud, cur_r)
-        cloud[:, 0] += self.cur_t[0]
-        cloud[:, 1] += self.cur_t[1]
-        cloud[:, 2] += self.cur_t[2]
-
-        # Track all cloud
-        self.cloud_all = cloud
-
-        # Pos plot
-        if self.sca_p is None:
-        # if self.pos_p is None:
-            plt.plot(self.x_data, self.z_data)
-
-       #     s = self.ax.scatter(cloud[:, 0], cloud[:, 2], -cloud[:, 1])
-       #     self.sca_p = s
-        else:
-            # Set data
-            plt.plot(self.x_data, self.z_data)
-
-            # Offset data
-            self.sca_p._offsets3d = (self.cloud_all[:, 0], self.cloud_all[:, 2], -self.cloud_all[:, 1])
-
-        # Show plt
-        BORDER = 100
-        plt.xlim(min(self.x_data) - BORDER, max(self.x_data) + BORDER)
-        plt.ylim(min(self.z_data) - BORDER, max(self.z_data) + BORDER)
-        # self.ax.set_zlim(min(self.y_data) - BORDER, max(self.y_data) + BORDER)
-        # plt.xlim(-100, 100)
-        # plt.ylim(-100, 100)
-        plt.draw()
-        plt.pause(0.001)
-
 
     def KLT_featureTracking(self, prev_img, cur_img, prev_fts):
         # Feature tracking using the Kanade-Lucas-Tomasi tracker
@@ -392,9 +291,8 @@ class VisualOdometry:
         self.gf.upload(frame)
 
         # Resize frame
-        # if not self.resized_frame_size is None:
-        #    print(None)
-        #     self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
+        if not self.resized_frame_size is None:
+             self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
 
         # Convert to gray
         self.gf = cv2.cuda.cvtColor(self.gf, cv2.COLOR_BGR2GRAY)
