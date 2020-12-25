@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from src.datasets_helper import DatasetsHelper
+from src.plot_helper import PlotHelper
 from src.utils import *
 
 class VisualOdometry:
@@ -17,10 +18,13 @@ class VisualOdometry:
         # Datasets helper
         self.dh = DatasetsHelper(dataset)
         if self.dh.resized_frame_size:
-            self.resized_frame_size = np.array(self.dh.resized_frame_size)
+            self.resized_frame_size = self.dh.resized_frame_size
         else:
             self.resized_frame_size = None
         self.intrinsic_matrix = np.array(self.dh.intrinsic_matrix)
+
+        # Init plot helper
+        self.ph = PlotHelper()
 
         # Initialize detector
         if self.detector_name == 'FAST':
@@ -56,6 +60,8 @@ class VisualOdometry:
         self.cur_g_frame = None
         self.pre_g_frame = None
 
+        self.cur_rgb_c_frame = None
+
         # Features
         self.cur_c_fts = None  # Current CPU features
         self.pre_c_fts = None  # Previous CPU features
@@ -74,10 +80,9 @@ class VisualOdometry:
         self.y_data = list()
         self.z_data = list()
 
-        # Plots
-        self.pos_p = None
-        self.sca_p = None
-        self.cloud_p = None
+        # Framerate tracking
+        self.framerate_list = []
+        self.framerate = 0.0
 
         # Masks
         self.mask_ch = None
@@ -98,11 +103,10 @@ class VisualOdometry:
                 self.process_frame(frame)
 
                 # Plotting
-                # Prepare frame
-                frame = self.cur_c_frame
+                frame = self.cur_rgb_c_frame
                 frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts, self.mask_ch)
                 
-
+                self.ph.plot(frame, self.framerate) 
     
         # Release the capture
         cap.release()
@@ -118,8 +122,8 @@ class VisualOdometry:
 
     def draw_of(self, frame, pre_fts, cur_fts, mask):
         size = 3
-        col = (255, 0, 0)
-        th = 1
+        col = (0, 255, 0)
+        th = 2
         for m, p, c in zip(mask, pre_fts, cur_fts):
             if m:
                 end_point = (int(p[0]), int(p[1]))
@@ -149,6 +153,8 @@ class VisualOdometry:
         if not self.resized_frame_size is None:
             self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
             self.cur_rgb_c_frame = self.gf.download()
+        else:
+            self.cur_rgb_c_frame = frame
 
         # Convert to gray
         self.gf = cv2.cuda.cvtColor(self.gf, cv2.COLOR_BGR2GRAY)
@@ -164,9 +170,6 @@ class VisualOdometry:
         # Update prev and curr img
         self.pre_g_frame = self.cur_g_frame
         self.cur_g_frame = self.gf
-
-        # Add to cloud
-        add_to_cloud = False
 
         # Detect new features if we don't have enough
         if len(self.pre_c_fts) < MIN_NUM_FEATURES:
@@ -189,8 +192,6 @@ class VisualOdometry:
             tmp.upload(tmp_re)
             self.cur_g_fts = tmp
 
-            # Redected points, add to cloud
-            add_to_cloud = True
 
         # Track g fts
         self.pre_g_fts = self.cur_g_fts
@@ -230,7 +231,11 @@ class VisualOdometry:
         self.d_frame = self.gf.download()
 
         # End timer and compute framerate
-        self.framerate = round(1.0 / (time.monotonic() - process_frame_start))
+        framerate = round(1.0 / (time.monotonic() - process_frame_start))
+        self.framerate_list.append(framerate) 
+        if len(self.framerate_list) > 100:
+            del self.framerate_list[0]
+        self.framerate = sum(self.framerate_list)/len(self.framerate_list)
 
     def triangulate_points(self, R, t, delta_R, delta_t):
         P0 = np.dot(self.intrinsic_matrix, np.eye(3, 4))
@@ -292,7 +297,10 @@ class VisualOdometry:
 
         # Resize frame
         if not self.resized_frame_size is None:
-             self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
+            self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
+            self.cur_rgb_c_frame = self.gf.download()
+        else:
+            self.cur_rgb_c_frame = frame
 
         # Convert to gray
         self.gf = cv2.cuda.cvtColor(self.gf, cv2.COLOR_BGR2GRAY)
