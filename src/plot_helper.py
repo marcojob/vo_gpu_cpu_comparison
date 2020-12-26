@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 plt.rcParams['axes.labelsize'] = 8
 plt.rcParams['axes.titlesize'] = 8
+plt.rcParams['xtick.labelsize'] = 8
+plt.rcParams['ytick.labelsize'] = 8
 import threading
 import numpy as np
 
@@ -23,7 +25,7 @@ class PlotHelper():
          # Start the process
          self.p.start()
 
-    def plot(self, frame, framerate, cloud, nfeatures, framecount, trans):
+    def plot(self, frame, framerate, cloud, nfeatures, framecount, trans, color):
         # When giving a list into the queue, it actually only gives the pointer
         # therefore you need to create a copy in order to be ensure that content is
         # not modified
@@ -36,7 +38,8 @@ class PlotHelper():
                 "cloud": cloud,
                 "nfeatures": cp_nfeatures,
                 "framecount": framecount,
-                "trans": cp_trans}
+                "trans": cp_trans,
+                "color": color}
 
         # Put it in the queue
         self.q.put(data)
@@ -54,6 +57,7 @@ class PlotHelper():
                     nfeatures = data.get("nfeatures", [])
                     framecount = data.get("framecount", None)
                     trans = data.get("trans", [])
+                    color = data.get("color", [])
 
                     # Plot the current frame
                     if not self.current_image_p:
@@ -74,24 +78,41 @@ class PlotHelper():
                     if not self.full_trajectory_p:
                         self.full_trajectory_p, = self.full_trajectory_ax.plot(trans_x, trans_y)
                     else:
-                        ax_min = min(min(trans_x), min(trans_y))
-                        ax_max = max(max(trans_x), max(trans_y))
+                        ax_min = min(min(trans_x), min(trans_y)) - 10
+                        ax_max = max(max(trans_x), max(trans_y)) + 10
                         self.full_trajectory_p.set_xdata(trans_x)
                         self.full_trajectory_p.set_ydata(trans_y)
                         self.full_trajectory_ax.set_xlim(ax_min, ax_max)
                         self.full_trajectory_ax.set_ylim(ax_min, ax_max)
+
+                    # Plot the point cloud, reorganise into easily plottable format
+                    cloud_data = [[], []]
+                    if not cloud is None:
+                        for p in cloud.T:
+                            cloud_data[0].append(p[0])
+                            cloud_data[1].append(p[2])
+
+                    if not self.point_cloud_p:
+                        self.point_cloud_p = self.point_cloud_ax.scatter(cloud_data[0], cloud_data[1], c=color, alpha=0.5, s=0.5)
+                        self.point_cloud_traj_p, = self.point_cloud_ax.plot(trans_x[-50:], trans_y[-50:])
+                    else:
+                        ax_x = (trans_x[-1] - 50, trans_x[-1] + 50)
+                        ax_y = (trans_y[-1] - 50, trans_y[-1] + 50)
+                        self.point_cloud_p.set_offsets(np.array(cloud_data).T)
+                        self.point_cloud_p.set_color(np.array(color))
+                        self.point_cloud_ax.set_xlim(ax_x)
+                        self.point_cloud_ax.set_ylim(ax_y)
+                        self.point_cloud_traj_p.set_xdata(trans_x[-50:])
+                        self.point_cloud_traj_p.set_ydata(trans_y[-50:])
+
 
                     # Draw the fig again
                     self.fig.canvas.draw_idle()
                     self.fig.canvas.flush_events()
                 
                     # Slow the loop down a bit, this also helps to manage the queue size
-                    factor = 3.0
-                    if q.qsize() > 100:
-                         factor = 3.00
+                    factor = 4.0
                     sleep(1.0/framerate*factor)
-                else:
-                    sleep(1.0)
 
         except Exception as e:
             print(e)
@@ -111,7 +132,7 @@ class PlotHelper():
 
             # Prepare the number of tracked features plot
             self.nfeatures_ax = self.fig.add_subplot(2, 4, 5)
-            self.nfeatures_ax.set_title("# tracked landmarks over last 20 frames")
+            self.nfeatures_ax.set_title("# tracked landmarks over last 50 frames")
             self.nfeatures_ax.set_ylim(0, 1500)
             self.nfeatures_p = None
 
@@ -119,6 +140,11 @@ class PlotHelper():
             self.full_trajectory_ax = self.fig.add_subplot(2, 4, 6)
             self.full_trajectory_ax.set_title("Full trajectory")
             self.full_trajectory_p = None
+
+            # Prepare the point cloud plot
+            self.point_cloud_ax = self.fig.add_subplot(1, 2, 2)
+            self.point_cloud_ax.set_title("Point cloud and trajectory over last 50 frames")
+            self.point_cloud_p = None
 
             # Start the plot update thread
             data_thread = threading.Thread(target=self._update, args=(q,))            

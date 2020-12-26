@@ -1,7 +1,6 @@
 import cv2
 import time
 import numpy as np
-import matplotlib.pyplot as plt
 
 from src.datasets_helper import DatasetsHelper
 from src.plot_helper import PlotHelper
@@ -87,7 +86,7 @@ class VisualOdometry:
         self.framecount = 0
 
         # N Features tracking
-        self.nfeatures_window = 20 # frames to track
+        self.nfeatures_window = 50 # frames to track
         self.nfeatures_list = [0.0 for i in range(self.nfeatures_window)]
 
         # Masks
@@ -95,6 +94,7 @@ class VisualOdometry:
 
         # Cloud
         self.cloud = None
+        self.fts_color = None
     
     def start(self, plot=True):
         # Get first frame
@@ -113,7 +113,7 @@ class VisualOdometry:
                 frame = self.cur_rgb_c_frame
                 frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts, self.mask_ch)
                 
-                self.ph.plot(frame, self.framerate, self.cloud, self.nfeatures_list, self.framecount, self.all_t) 
+                self.ph.plot(frame, self.framerate, self.cloud, self.nfeatures_list, self.framecount, self.all_t, self.fts_color) 
 
     def draw_fts(self, frame, fts):
         size = 3
@@ -212,7 +212,11 @@ class VisualOdometry:
 
         # Recover pose
         ret, r, t, self.mask_ch = cv2.recoverPose(E, self.cur_c_fts, self.pre_c_fts, self.intrinsic_matrix, mask)
+
         if ret > 10:
+            # Get the color of the feature point, in order to visualize cloud better 
+            self.fts_color = list()
+
             # Only keep mask of features
             tmp_cur_fts = list()
             tmp_pre_fts = list()
@@ -220,6 +224,10 @@ class VisualOdometry:
                 if m[0]:
                     tmp_cur_fts.append(self.cur_c_fts[i])
                     tmp_pre_fts.append(self.pre_c_fts[i])
+
+                    # Get the color value
+                    u, v = self.cur_c_fts[i]
+                    self.fts_color.append(self.cur_rgb_c_frame[int(v), int(u), :]/255.0)
             self.cur_c_fts = np.array(tmp_cur_fts)
             self.pre_c_fts = np.array(tmp_pre_fts)
 
@@ -233,12 +241,20 @@ class VisualOdometry:
             self.all_r.append(self.cur_r)
 
             # Triangulate points
-            self.cloud = self.triangulate_points(self.cur_r, self.cur_t, r, t)
+            cloud_body = self.triangulate_points(r, t)
+            
+            # Reject points behind the camera
+            cloud_body = cloud_body[cloud_body[:, 2] > 0.0]
 
-        # Update the number of features tracked
-        self.nfeatures_list.append(ret)
-        if len(self.nfeatures_list) > self.nfeatures_window:
-            del self.nfeatures_list[0]
+            # Rotate and translate point cloud
+            cloud_body[:, 0] = -cloud_body[:, 0]
+            self.cloud = self.cur_r.dot(cloud_body.T)
+            self.cloud = self.cur_t + self.scale*self.cloud
+
+            # Update the number of features tracked
+            self.nfeatures_list.append(len(self.cloud.T))
+            if len(self.nfeatures_list) > self.nfeatures_window:
+                del self.nfeatures_list[0]
 
         # Download frame
         self.d_frame = self.gf.download()
@@ -250,14 +266,17 @@ class VisualOdometry:
             del self.framerate_list[0]
         self.framerate = sum(self.framerate_list)/len(self.framerate_list)
 
-    def triangulate_points(self, R, t, delta_R, delta_t):
+    def triangulate_points(self, delta_R, delta_t):
+        # Perspective 0 has no rotation and no translation
         P0 = np.dot(self.intrinsic_matrix, np.eye(3, 4))
-
+        
+        # Perspective 1 has calculated rotation and translation
         P1 = np.hstack((delta_R, -delta_t))
         P1 = self.intrinsic_matrix.dot(P1)
-
-        cloud_homo = cv2.triangulatePoints(P0, P1, self.pre_c_fts.T, self.cur_c_fts.T)
-        cloud = cv2.convertPointsFromHomogeneous(cloud_homo.T).reshape(-1, 3)
+        
+        # Get cloud
+        cloud_homogenous = cv2.triangulatePoints(P0, P1, self.pre_c_fts.T, self.cur_c_fts.T)
+        cloud = cv2.convertPointsFromHomogeneous(cloud_homogenous.T).reshape(-1, 3)
 
         return cloud
 
