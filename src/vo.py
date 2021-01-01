@@ -233,7 +233,7 @@ class VisualOdometry:
 
             # Continue tracking of movement
             self.scale = 1.0 / np.linalg.norm(t)
-            self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
+            self.cur_r = self.cur_r.dot(r)  # Concatenate the rotation matrix
             self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
             self.all_t[0].append(self.cur_t[0])
             self.all_t[1].append(self.cur_t[2])
@@ -247,7 +247,6 @@ class VisualOdometry:
             cloud_body = cloud_body[cloud_body[:, 2] > 0.0]
 
             # Rotate and translate point cloud
-            cloud_body[:, 0] = -cloud_body[:, 0]
             self.cloud = self.cur_r.dot(cloud_body.T)
             self.cloud = self.cur_t + self.scale*self.cloud
 
