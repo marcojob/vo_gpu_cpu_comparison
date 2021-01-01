@@ -7,15 +7,15 @@ from src.plot_helper import PlotHelper
 from src.utils import *
 
 class VisualOdometry:
-    def __init__(self, cpu_or_gpu, detector, dataset):
+    def __init__(self, args):
         # Choose detector
-        self.detector_name = detector
+        self.detector_name = args.detector
 
         # Determine if to run pipeline on GPU 
-        self.on_gpu = True if cpu_or_gpu == "gpu" else False
+        self.on_gpu = args.gpu
 
         # Datasets helper
-        self.dh = DatasetsHelper(dataset)
+        self.dh = DatasetsHelper(args.dataset)
         if self.dh.resized_frame_size:
             self.resized_frame_size = self.dh.resized_frame_size
         else:
@@ -23,7 +23,8 @@ class VisualOdometry:
         self.intrinsic_matrix = np.array(self.dh.intrinsic_matrix)
 
         # Init plot helper
-        self.ph = PlotHelper()
+        if not args.headless:
+            self.ph = PlotHelper()
 
         # Initialize detector
         if self.detector_name == 'FAST':
@@ -95,6 +96,9 @@ class VisualOdometry:
         # Cloud
         self.cloud = None
         self.fts_color = None
+
+        ## Start the pipeline
+        self.start(plot= not args.headless)
     
     def start(self, plot=True):
         # Get first frame
