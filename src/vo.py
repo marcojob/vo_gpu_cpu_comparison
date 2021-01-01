@@ -110,10 +110,11 @@ class VisualOdometry:
                 self.framecount += 1
 
                 # Plotting
-                frame = self.cur_rgb_c_frame
-                frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts, self.mask_ch)
+                if plot:
+                    frame = self.cur_rgb_c_frame
+                    frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts, self.mask_ch)
                 
-                self.ph.plot(frame, self.framerate, self.cloud, self.nfeatures_list, self.framecount, self.all_t, self.fts_color) 
+                    self.ph.plot(frame, self.framerate, self.cloud, self.nfeatures_list, self.framecount, self.all_t, self.fts_color) 
 
     def draw_fts(self, frame, fts):
         size = 3
