@@ -10,5 +10,5 @@ Download the Malaga dataset from the original source or [here](http://rpg.ifi.uz
 ## Arbitrary video datasets
 Place any video file into the datasets folder and add a new entry in the `datasets_helper.py` file (instructions below).
 
-# `datasets_helper.py`: Adding / modifying entries
-TODO
+# `datasets/configs.py`: Adding / modifying entries
+To add new datasets follow the already given configs. Datasets from images and from video files are supported. 

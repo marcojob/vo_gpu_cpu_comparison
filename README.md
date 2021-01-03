@@ -8,7 +8,7 @@ The pipeline has been tested with *Python 3.8.5*, but should be compatible with 
 In order to run the pipline on a GPU a NVIDIA graphics card is required on the machine. Additionally OpenCV needs to be compiled with the `-D WITH_CUDA=O` flag. Python bindings for OpenCV can be conveniently installed with [this repository](https://github.com/skvark/opencv-python). The repository provides instruction for CUDA installation, but after updating the cmake target with the CUDA flag in the OpenCV submodule in this repository, the installation of CUDA should be already done.
 
 ## 2. Running the pipeline
-The pipeline can be run with `python main.py -i <DATASET> -d <DETECTOR> -p <CPU or GPU>`. The available detectors are SURF, FAST, ORB, SHI-TOMASI corners and REGULAR_GRID. The available datasets are KITTI, Malaga and Autobahn.
+The pipeline can be run with `python main.py -a <DATASET> -e <DETECTOR> -g <NO GPU=0, GPU=1>. The available detectors are SURF, FAST, ORB, SHI-TOMASI corners and REGULAR_GRID. The available datasets are KITTI, Malaga and Autobahn.
 
 ### Datasets
 The documentatioopen of the dataset management can be found in `datasets/README.md`
