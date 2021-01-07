@@ -132,5 +132,8 @@ dmypy.json
 datasets/*
 !datasets/README.md
 
+# Profiler folder
+profiler/*
+
 # Vim swp files
 *.swp

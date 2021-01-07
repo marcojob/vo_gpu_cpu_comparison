@@ -50,7 +50,8 @@ class DatasetsHelper():
             ret = 1
             while ret:
                 ret, img = cap.read()
-                yield img
+                if ret == True:
+                    yield img
 
 
     @property

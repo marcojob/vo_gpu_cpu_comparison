@@ -1,10 +1,12 @@
 import cv2
 import time
 import numpy as np
+import faulthandler
 
 from src.datasets_helper import DatasetsHelper
 from src.plot_helper import PlotHelper
 from src.utils import *
+from src.profiler import Profiler
 
 class VisualOdometry:
     def __init__(self, args):
@@ -97,6 +99,14 @@ class VisualOdometry:
         self.cloud = None
         self.fts_color = None
 
+        # Initialize a profiler
+        Profiler.set_property_dataset(args.dataset)
+        Profiler.set_property_detector(args.detector)
+        Profiler.set_property_gpu(args.gpu)
+
+        # Faulthandler
+        faulthandler.enable()
+
         ## Start the pipeline
         self.start(plot= not args.headless)
     
@@ -109,9 +119,15 @@ class VisualOdometry:
 
         # Loop through frames
         for frame in self.dh.images:
+                # Profiler main loop start
+                Profiler.start("main_loop")
+
                 # Main frame processing
                 self.process_frame(frame)
                 self.framecount += 1
+
+                # Profiler main loop end
+                Profiler.end("main_loop")
 
                 # Plotting
                 if plot:
@@ -119,6 +135,9 @@ class VisualOdometry:
                     frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts, self.mask_ch)
                 
                     self.ph.plot(frame, self.framerate, self.cloud, self.nfeatures_list, self.framecount, self.all_t, self.fts_color) 
+
+        # Generate report
+        Profiler.report()
 
     def draw_fts(self, frame, fts):
         size = 3
@@ -151,26 +170,34 @@ class VisualOdometry:
                            fontScale, col, th, cv2.LINE_AA)
 
     def process_frame(self, frame):
-        # Start timer
+        # Start timer for framerate
         process_frame_start = time.monotonic()
-
+        
         # Upload resized frame to GPU
+        Profiler.start("upload_frame")
         self.gf = cv2.cuda_GpuMat()
         self.gf.upload(frame)
+        Profiler.end("upload_frame")
 
         # Resize frame
         if not self.resized_frame_size is None:
+            Profiler.start("resize_frame")
             self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
             self.cur_rgb_c_frame = self.gf.download()
+            Profiler.start("resize_frame")
         else:
             self.cur_rgb_c_frame = frame
 
         # Convert to gray
+        Profiler.start("cvt_color")
         self.gf = cv2.cuda.cvtColor(self.gf, cv2.COLOR_BGR2GRAY)
+        Profiler.end("cvt_color")
 
         # Update CPU frame
+        Profiler.start("download_frame")
         self.pre_c_frame = self.cur_c_frame
         self.cur_c_frame = self.gf.download()
+        Profiler.end("download_frame")
 
         # Apply Clahe filter
         if USE_CLAHE:
@@ -182,12 +209,19 @@ class VisualOdometry:
 
         # Detect new features if we don't have enough
         if len(self.pre_c_fts) < MIN_NUM_FEATURES:
+            Profiler.start("detect_new_features")
             self.cur_g_fts = self.detect_new_features(self.cur_g_frame)
+            Profiler.end("detect_new_features")
+            
+            Profiler.start("detect_new_features")
             self.pre_g_fts = self.detect_new_features(self.pre_g_frame)
+            Profiler.end("detect_new_features")
 
             # Convert keypoints to CPU
+            Profiler.start("convert_fts_to_cpu")
             self.cur_c_fts = self.convert_fts_gpu_to_cpu(self.cur_g_fts)
             self.pre_c_fts = self.convert_fts_gpu_to_cpu(self.pre_g_fts)
+            Profiler.end("convert_fts_to_cpu")
 
             # The GPU keypoints need to be in this format for some reason
             tmp = cv2.cuda_GpuMat()
@@ -206,17 +240,25 @@ class VisualOdometry:
         self.pre_g_fts = self.cur_g_fts
 
         # Sparse OF
+        Profiler.start("klt_tracking")
         self.pre_c_fts, self.cur_c_fts, _ = self.KLT_featureTracking(self.pre_g_frame, self.cur_g_frame, self.pre_g_fts)
+        Profiler.end("klt_tracking")
 
         # Upload to GPU also
+        Profiler.start("upload_frame")
         self.pre_g_fts.upload(self.pre_c_fts.reshape((1, -1, 2)))
         self.cur_g_fts.upload(self.cur_c_fts.reshape((1, -1, 2)))
+        Profiler.end("upload_frame")
 
         # Find Essential matrix
+        Profiler.start("estimate_essential_matrix")
         E, mask = cv2.findEssentialMat(self.cur_c_fts, self.pre_c_fts, self.intrinsic_matrix, cv2.RANSAC, 0.99, 1.0, None)
+        Profiler.end("estimate_essential_matrix")
 
         # Recover pose
+        Profiler.start("recover_pose")
         ret, r, t, self.mask_ch = cv2.recoverPose(E, self.cur_c_fts, self.pre_c_fts, self.intrinsic_matrix, mask)
+        Profiler.end("recover_pose")
 
         if ret > 10:
             # Get the color of the feature point, in order to visualize cloud better 
@@ -237,6 +279,7 @@ class VisualOdometry:
             self.pre_c_fts = np.array(tmp_pre_fts)
 
             # Continue tracking of movement
+            Profiler.start("track_movement")
             self.scale = 1.0 / np.linalg.norm(t)
             self.cur_r = self.cur_r.dot(r)  # Concatenate the rotation matrix
             self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
@@ -244,16 +287,21 @@ class VisualOdometry:
             self.all_t[1].append(self.cur_t[2])
             self.all_t[2].append(self.cur_t[1])
             self.all_r.append(self.cur_r)
+            Profiler.end("track_movement")
 
             # Triangulate points
+            Profiler.start("triangulate_points")
             cloud_body = self.triangulate_points(r, t)
+            Profiler.start("triangulate_points")
             
             # Reject points behind the camera
+            Profiler.start("track_pointcloud")
             cloud_body = cloud_body[cloud_body[:, 2] > 0.0]
 
             # Rotate and translate point cloud
             self.cloud = self.cur_r.dot(cloud_body.T)
             self.cloud = self.cur_t + self.scale*self.cloud
+            Profiler.end("track_pointcloud")
 
             # Update the number of features tracked
             self.nfeatures_list.append(len(self.cloud.T))
@@ -261,7 +309,9 @@ class VisualOdometry:
                 del self.nfeatures_list[0]
 
         # Download frame
+        Profiler.start("download_frame")
         self.d_frame = self.gf.download()
+        Profiler.end("download_frame")
 
         # End timer and compute framerate
         framerate = round(1.0 / (time.monotonic() - process_frame_start))
