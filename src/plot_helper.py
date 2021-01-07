@@ -87,23 +87,25 @@ class PlotHelper():
 
                     # Plot the point cloud, reorganise into easily plottable format
                     cloud_data = [[], []]
-                    if not cloud is None:
+                    if not cloud is None and len(cloud.T) > 0:
                         for p in cloud.T:
                             cloud_data[0].append(p[0])
                             cloud_data[1].append(p[2])
 
-                    if not self.point_cloud_p:
-                        self.point_cloud_p = self.point_cloud_ax.scatter(cloud_data[0], cloud_data[1], c=color, alpha=0.5, s=0.5)
-                        self.point_cloud_traj_p, = self.point_cloud_ax.plot(trans_x[-50:], trans_y[-50:])
-                    else:
-                        ax_x = (trans_x[-1] - 50, trans_x[-1] + 50)
-                        ax_y = (trans_y[-1] - 50, trans_y[-1] + 50)
-                        self.point_cloud_p.set_offsets(np.array(cloud_data).T)
-                        self.point_cloud_p.set_color(np.array(color))
-                        self.point_cloud_ax.set_xlim(ax_x)
-                        self.point_cloud_ax.set_ylim(ax_y)
-                        self.point_cloud_traj_p.set_xdata(trans_x[-50:])
-                        self.point_cloud_traj_p.set_ydata(trans_y[-50:])
+                        color = color[:len(cloud.T)]
+
+                        if not self.point_cloud_p:
+                            self.point_cloud_p = self.point_cloud_ax.scatter(cloud_data[0], cloud_data[1], c=color, alpha=0.5, s=0.5)
+                            self.point_cloud_traj_p, = self.point_cloud_ax.plot(trans_x[-50:], trans_y[-50:])
+                        else:
+                            ax_x = (trans_x[-1] - 50, trans_x[-1] + 50)
+                            ax_y = (trans_y[-1] - 50, trans_y[-1] + 50)
+                            self.point_cloud_p.set_offsets(np.array(cloud_data).T)
+                            self.point_cloud_p.set_color(np.array(color))
+                            self.point_cloud_ax.set_xlim(ax_x)
+                            self.point_cloud_ax.set_ylim(ax_y)
+                            self.point_cloud_traj_p.set_xdata(trans_x[-50:])
+                            self.point_cloud_traj_p.set_ydata(trans_y[-50:])
 
 
                     # Draw the fig again

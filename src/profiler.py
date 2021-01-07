@@ -49,7 +49,7 @@ class Profiler:
         cls.registry[name].avg_duration += cls.registry[name].duration / cls.registry[name].calls
 
     @classmethod
-    def report(cls):
+    def report(cls, ts, nfts):
         print("===== Average duration report =====")
         for r in cls.registry.keys():
             print("{}:\t\t{} ms".format(r, round(cls.registry[r].avg_duration, 2)))
@@ -60,3 +60,14 @@ class Profiler:
             f.write("computation, duration\n")
             for r in cls.registry.keys():
                 f.write("{}, {}\n".format(r, round(cls.registry[r].avg_duration, 2)))
+
+        # Write traj to file
+        with open("profiler/{}_{}_{}_t.txt".format(cls.dataset, cls.detector, cls.gpu), "w") as f:
+            for x,y in zip(ts[0][1:], ts[1][1:]):
+                f.write("{}, {}\n".format(x[0], y[0]))
+
+        # Write nfts to file
+        with open("profiler/{}_{}_{}_nfts.txt".format(cls.dataset, cls.detector, cls.gpu), "w") as f:
+            for n in nfts:
+                f.write("{}\n".format(n))
+                

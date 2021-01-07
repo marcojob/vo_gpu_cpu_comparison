@@ -22,6 +22,8 @@ class VisualOdometry:
             self.resized_frame_size = self.dh.resized_frame_size
         else:
             self.resized_frame_size = None
+        
+        # Get the intrinsic matrix
         self.intrinsic_matrix = np.array(self.dh.intrinsic_matrix)
 
         # Init plot helper
@@ -30,31 +32,41 @@ class VisualOdometry:
 
         # Initialize detector
         if self.detector_name == 'FAST':
-            self.detector = cv2.cuda_FastFeatureDetector.create(threshold=75, nonmaxSuppression=True)
-        elif self.detector_name == 'SIFT':
-            self.detector = cv2.cuda.xfeatures2d.SIFT_create(MAX_NUM_FEATURES) # FIX
+            if self.on_gpu:
+                self.detector = cv2.cuda_FastFeatureDetector.create(threshold=75, nonmaxSuppression=True)
+            else:
+                self.detector = cv2.FastFeatureDetector_create(threshold=75, nonmaxSuppression=True)
         elif self.detector_name == 'SURF':
-            self.detector = cv2.cuda.SURF_CUDA_create(300, _nOctaveLayers=2)
+            if self.on_gpu:
+                self.detector = cv2.cuda.SURF_CUDA_create(300)
+            else:
+                self.detector = cv2.xfeatures2d.SURF_create(300)
         elif self.detector_name == 'ORB':
-            self.detector = cv2.cuda_ORB.create(nfeatures=MAX_NUM_FEATURES)
+            if self.on_gpu:
+                self.detector = cv2.cuda_ORB.create(nfeatures=MAX_NUM_FEATURES)
+            else:
+                self.detector = cv2.ORB_create(nfeatures=MAX_NUM_FEATURES)
         elif self.detector_name == 'SHI-TOMASI':
-            self.detector = cv2.cuda.createGoodFeaturesToTrackDetector(cv2.CV_8UC1, feature_params['maxCorners'], \
-                                           feature_params['qualityLevel'], feature_params['minDistance'], \
-                                           feature_params['blockSize'])
+            if self.on_gpu:
+                self.detector = cv2.cuda.createGoodFeaturesToTrackDetector(cv2.CV_8UC1, feature_params['maxCorners'], \
+                                            feature_params['qualityLevel'], feature_params['minDistance'], \
+                                            feature_params['blockSize'])
+            else:
+                pass
         elif self.detector_name == 'REGULAR_GRID':
             self.init_regular_grid_detector()
         else:
             assert 1 == 0, "Detector not available"
 
-        # Initialize clahe filter
-        self.clahe = cv2.cuda.createCLAHE(clipLimit=5.0)
-
         # LK
         lk_params = dict( winSize  = (15, 15),
                   maxLevel = 2,)
                   # criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
-        self.lk = cv2.cuda.SparsePyrLKOpticalFlow_create(**lk_params)
-
+        if self.on_gpu:
+            self.lk = cv2.cuda.SparsePyrLKOpticalFlow_create(**lk_params)
+        else:
+            self.lk = cv2.SparsePyrLKOpticalFlow_create(**lk_params)
+        
         # Frames
         self.cur_c_frame = None
         self.pre_c_frame = None
@@ -91,6 +103,7 @@ class VisualOdometry:
         # N Features tracking
         self.nfeatures_window = 50 # frames to track
         self.nfeatures_list = [0.0 for i in range(self.nfeatures_window)]
+        self.nfts = list()
 
         # Masks
         self.mask_ch = None
@@ -137,7 +150,10 @@ class VisualOdometry:
                     self.ph.plot(frame, self.framerate, self.cloud, self.nfeatures_list, self.framecount, self.all_t, self.fts_color) 
 
         # Generate report
-        Profiler.report()
+        Profiler.report(self.all_t, self.nfts)
+
+        # Exit afterwards
+        exit()
 
     def draw_fts(self, frame, fts):
         size = 3
@@ -152,7 +168,7 @@ class VisualOdometry:
         size = 3
         col = (0, 255, 0)
         th = 2
-        for m, p, c in zip(mask, pre_fts, cur_fts):
+        for m, p, c in zip(mask, pre_fts[0], cur_fts[0]):
             if m:
                 end_point = (int(p[0]), int(p[1]))
                 start_point = (int(c[0]), int(c[1]))
@@ -173,82 +189,102 @@ class VisualOdometry:
         # Start timer for framerate
         process_frame_start = time.monotonic()
         
-        # Upload resized frame to GPU
-        Profiler.start("upload_frame")
-        self.gf = cv2.cuda_GpuMat()
-        self.gf.upload(frame)
-        Profiler.end("upload_frame")
+        # Upload frame to GPU
+        if self.on_gpu:
+            Profiler.start("upload_frame")
+            self.gf = cv2.cuda_GpuMat()
+            self.gf.upload(frame)
+            Profiler.end("upload_frame")
 
         # Resize frame
         if not self.resized_frame_size is None:
             Profiler.start("resize_frame")
-            self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
-            self.cur_rgb_c_frame = self.gf.download()
+            if self.on_gpu:
+                self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
+                self.cur_rgb_c_frame = self.gf.download()
+            else:
+                self.cur_rgb_c_frame = cv2.resize(frame, self.resized_frame_size)
             Profiler.start("resize_frame")
         else:
             self.cur_rgb_c_frame = frame
 
         # Convert to gray
         Profiler.start("cvt_color")
-        self.gf = cv2.cuda.cvtColor(self.gf, cv2.COLOR_BGR2GRAY)
+        if self.on_gpu:
+            self.gf = cv2.cuda.cvtColor(self.gf, cv2.COLOR_BGR2GRAY)
+            
+            # Update CPU frame
+            Profiler.start("download_frame")
+            self.pre_c_frame = self.cur_c_frame
+            self.cur_c_frame = self.gf.download()
+            Profiler.end("download_frame")
+
+        else:
+            self.pre_c_frame = self.cur_c_frame
+            self.cur_c_frame = cv2.cvtColor(self.cur_rgb_c_frame, cv2.COLOR_BGR2GRAY)
         Profiler.end("cvt_color")
 
-        # Update CPU frame
-        Profiler.start("download_frame")
-        self.pre_c_frame = self.cur_c_frame
-        self.cur_c_frame = self.gf.download()
-        Profiler.end("download_frame")
-
-        # Apply Clahe filter
-        if USE_CLAHE:
-            self.gf = self.clahe.apply(self.gf, None)
-
         # Update prev and curr img
-        self.pre_g_frame = self.cur_g_frame
-        self.cur_g_frame = self.gf
+        if self.on_gpu:
+            self.pre_g_frame = self.cur_g_frame
+            self.cur_g_frame = self.gf
 
         # Detect new features if we don't have enough
         if len(self.pre_c_fts) < MIN_NUM_FEATURES:
             Profiler.start("detect_new_features")
-            self.cur_g_fts = self.detect_new_features(self.cur_g_frame)
+            if self.on_gpu:
+                self.cur_g_fts = self.detect_new_features(self.cur_g_frame)
+            else:
+                self.cur_c_fts = self.detect_new_features(self.cur_c_frame)
             Profiler.end("detect_new_features")
             
             Profiler.start("detect_new_features")
-            self.pre_g_fts = self.detect_new_features(self.pre_g_frame)
+            if self.on_gpu:
+                self.pre_g_fts = self.detect_new_features(self.pre_g_frame)
+            else:
+                self.pre_c_fts = self.detect_new_features(self.pre_c_frame)
             Profiler.end("detect_new_features")
 
             # Convert keypoints to CPU
-            Profiler.start("convert_fts_to_cpu")
-            self.cur_c_fts = self.convert_fts_gpu_to_cpu(self.cur_g_fts)
-            self.pre_c_fts = self.convert_fts_gpu_to_cpu(self.pre_g_fts)
-            Profiler.end("convert_fts_to_cpu")
+            if self.on_gpu:
+                Profiler.start("convert_fts_to_cpu")
+                self.cur_c_fts = self.convert_fts_gpu_to_cpu(self.cur_g_fts)
+                self.pre_c_fts = self.convert_fts_gpu_to_cpu(self.pre_g_fts)
+                Profiler.end("convert_fts_to_cpu")
 
-            # The GPU keypoints need to be in this format for some reason
-            tmp = cv2.cuda_GpuMat()
-            tmp_re = self.pre_c_fts.reshape((1, -1, 2))
-            tmp.upload(tmp_re)
-            self.pre_g_fts = tmp
+                # The GPU keypoints need to be in this format for some reason
+                tmp = cv2.cuda_GpuMat()
+                tmp_re = self.pre_c_fts.reshape((1, -1, 2))
+                tmp.upload(tmp_re)
+                self.pre_g_fts = tmp
 
-            # The GPU keypoints need to be in this format for some reason
-            tmp = cv2.cuda_GpuMat()
-            tmp_re = self.cur_c_fts.reshape((1, -1, 2))
-            tmp.upload(tmp_re)
-            self.cur_g_fts = tmp
+                # The GPU keypoints need to be in this format for some reason
+                tmp = cv2.cuda_GpuMat()
+                tmp_re = self.cur_c_fts.reshape((1, -1, 2))
+                tmp.upload(tmp_re)
+                self.cur_g_fts = tmp
 
-
-        # Track g fts
-        self.pre_g_fts = self.cur_g_fts
+                # Track g fts
+                self.pre_g_fts = self.cur_g_fts
 
         # Sparse OF
         Profiler.start("klt_tracking")
-        self.pre_c_fts, self.cur_c_fts, _ = self.KLT_featureTracking(self.pre_g_frame, self.cur_g_frame, self.pre_g_fts)
+        if self.on_gpu:
+            self.pre_c_fts, self.cur_c_fts, _ = self.KLT_featureTracking(self.pre_g_frame, self.cur_g_frame, self.pre_g_fts)
+        else:
+            self.pre_c_fts, self.cur_c_fts, _ = self.KLT_featureTracking(self.pre_c_frame, self.cur_c_frame, self.pre_c_fts)
         Profiler.end("klt_tracking")
 
-        # Upload to GPU also
-        Profiler.start("upload_frame")
-        self.pre_g_fts.upload(self.pre_c_fts.reshape((1, -1, 2)))
-        self.cur_g_fts.upload(self.cur_c_fts.reshape((1, -1, 2)))
-        Profiler.end("upload_frame")
+        # Reshape features
+        self.pre_c_fts = self.pre_c_fts.reshape((1, -1, 2))
+        self.cur_c_fts = self.cur_c_fts.reshape((1, -1, 2))
+        
+        if self.on_gpu:
+            # Upload to GPU also
+            Profiler.start("upload_frame")
+            self.pre_g_fts.upload(self.pre_c_fts)
+            self.cur_g_fts.upload(self.cur_c_fts)
+            Profiler.end("upload_frame")
 
         # Find Essential matrix
         Profiler.start("estimate_essential_matrix")
@@ -269,14 +305,22 @@ class VisualOdometry:
             tmp_pre_fts = list()
             for i, m in enumerate(self.mask_ch):
                 if m[0]:
-                    tmp_cur_fts.append(self.cur_c_fts[i])
-                    tmp_pre_fts.append(self.pre_c_fts[i])
+                    tmp_cur_fts.append(self.cur_c_fts[0][i])
+                    tmp_pre_fts.append(self.pre_c_fts[0][i])
 
                     # Get the color value
-                    u, v = self.cur_c_fts[i]
-                    self.fts_color.append(self.cur_rgb_c_frame[int(v), int(u), :]/255.0)
-            self.cur_c_fts = np.array(tmp_cur_fts)
-            self.pre_c_fts = np.array(tmp_pre_fts)
+                    u, v = self.cur_c_fts[0][i]
+                    u_i, v_i = int(u), int(i)
+                    
+                    if u_i >= self.dh.size[0]:
+                        u_i = self.dh.size[0] - 1
+
+                    if v_i >= self.dh.size[1]:
+                        v_i = self.dh.size[1] - 1
+
+                    self.fts_color.append(self.cur_rgb_c_frame[v_i, u_i, :]/255.0)
+            self.cur_c_fts = np.array(tmp_cur_fts).reshape((1, -1, 2))
+            self.pre_c_fts = np.array(tmp_pre_fts).reshape((1, -1, 2))
 
             # Continue tracking of movement
             Profiler.start("track_movement")
@@ -304,14 +348,16 @@ class VisualOdometry:
             Profiler.end("track_pointcloud")
 
             # Update the number of features tracked
+            self.nfts.append(len(self.cloud.T))
             self.nfeatures_list.append(len(self.cloud.T))
             if len(self.nfeatures_list) > self.nfeatures_window:
                 del self.nfeatures_list[0]
-
-        # Download frame
-        Profiler.start("download_frame")
-        self.d_frame = self.gf.download()
-        Profiler.end("download_frame")
+        
+        if self.on_gpu:
+            # Download frame
+            Profiler.start("download_frame")
+            self.d_frame = self.gf.download()
+            Profiler.end("download_frame")
 
         # End timer and compute framerate
         framerate = round(1.0 / (time.monotonic() - process_frame_start))
@@ -336,17 +382,25 @@ class VisualOdometry:
 
     def KLT_featureTracking(self, prev_img, cur_img, prev_fts):
         # Feature tracking using the Kanade-Lucas-Tomasi tracker
+        
+        if self.on_gpu:
+            # Backtracking check
+            kp2_g, status, error = self.lk.calc(prev_img, cur_img, prev_fts, None)
+            kp1_g, status, error = self.lk.calc(cur_img, prev_img, kp2_g, None)
 
-        # Feature correspondence with backtracking
-        kp2_g, status, error = self.lk.calc(prev_img, cur_img, prev_fts, None)
-        kp1_g, status, error = self.lk.calc(cur_img, prev_img, kp2_g, None)
-
-        # Get CPU keypoints
-        kp2 = kp2_g.download().reshape((1, -1, 2))
-        kp1 = kp1_g.download().reshape((1, -1, 2))
+            # Get CPU keypoints
+            kp2 = kp2_g.download().reshape((1, -1, 2))
+            kp1 = kp1_g.download().reshape((1, -1, 2))
+        else:
+            kp2, status, error = self.lk.calc(prev_img, cur_img, prev_fts, None)
+            kp1, status, error = self.lk.calc(cur_img, prev_img, kp2, None)
 
         # Find difference
-        d = abs(prev_fts.download() - kp1).reshape(-1, 2).max(-1)
+        if self.on_gpu:
+            d = abs(prev_fts.download() - kp1).reshape(-1, 2).max(-1)
+        else:
+            d = abs(prev_fts - kp1).reshape(-1, 2).max(-1)
+
         diff = d < MIN_MATCHING_DIFF
 
         # Error Management
@@ -378,59 +432,94 @@ class VisualOdometry:
 
     def process_first_frame(self, frame):
         # Upload resized frame to GPU
-        self.gf = cv2.cuda_GpuMat()
-        self.gf.upload(frame)
+        if self.on_gpu:
+            self.gf = cv2.cuda_GpuMat()
+            self.gf.upload(frame)
 
         # Resize frame
         if not self.resized_frame_size is None:
-            self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
-            self.cur_rgb_c_frame = self.gf.download()
+            if self.on_gpu:
+                self.gf = cv2.cuda.resize(self.gf, self.resized_frame_size)
+                self.cur_rgb_c_frame = self.gf.download()
+            else:
+                self.cur_rgb_c_frame = cv2.resize(frame, self.resized_frame_size)
         else:
             self.cur_rgb_c_frame = frame
 
         # Convert to gray
-        self.gf = cv2.cuda.cvtColor(self.gf, cv2.COLOR_BGR2GRAY)
+        if self.on_gpu:
+            self.gf = cv2.cuda.cvtColor(self.gf, cv2.COLOR_BGR2GRAY)
+            
+            # Update CPU frame
+            self.cur_c_frame = self.gf.download()
 
-        # Update CPU frame
-        self.cur_c_frame = self.gf.download()
-
-        # Apply Clahe filter
-        if USE_CLAHE:
-            self.gf = self.clahe.apply(self.gf, None)
-
-        # Update curr img
-        self.cur_g_frame = self.gf
+            # Update cur image
+            self.cur_g_frame = self.gf
+        else:
+            self.cur_c_frame = cv2.cvtColor(self.cur_rgb_c_frame, cv2.COLOR_RGB2GRAY)
 
         # Detect initial features
-        self.cur_g_fts = self.detect_new_features(self.cur_g_frame)
+        if self.on_gpu:
+            self.cur_g_fts = self.detect_new_features(self.cur_g_frame)
 
-        # Convert keypoints to CPU
-        self.cur_c_fts = self.convert_fts_gpu_to_cpu(self.cur_g_fts)
+            # Convert keypoints to CPU
+            self.cur_c_fts = self.convert_fts_gpu_to_cpu(self.cur_g_fts)
+        else:
+            self.cur_c_fts = self.detect_new_features(self.cur_c_frame)
+
+        # Track features
         self.pre_c_fts = self.cur_c_fts
 
         # Reshape
-        tmp = cv2.cuda_GpuMat()
-        tmp_re = self.cur_c_fts.reshape((1, -1, 2))
-        tmp.upload(tmp_re)
-        self.cur_g_fts = tmp
-        self.pre_g_fts = tmp
+        if self.on_gpu:
+            tmp = cv2.cuda_GpuMat()
+            tmp_re = self.cur_c_fts.reshape((1, -1, 2))
+            tmp.upload(tmp_re)
+            self.cur_g_fts = tmp
+            self.pre_g_fts = tmp
 
     def detect_new_features(self, img):
         # Detect features using selected detector
         if self.detector_name == 'FAST' or self.detector_name == 'ORB':
-            g_kps = self.detector.detectAsync(img, None)
+            if self.on_gpu:
+                g_kps = self.detector.detectAsync(img, None)
+            else:
+                c_kps = self.detector.detect(img, None)
+                c_kps = np.array([x.pt for x in c_kps], dtype=np.float32).reshape((1, -1, 2))
+        elif self.detector_name == 'ORB':
+            if self.on_gpu:
+                pass
+            else:
+                c_kps = self.detector.detect(img, None)
+                c_kps = np.array([x.pt for x in c_kps], dtype=np.float32).reshape((1, -1, 2))
         elif self.detector_name == 'SURF':
-            g_kps = self.detector.detect(img, None)
+            if self.on_gpu:
+                g_kps = self.detector.detect(img, None)
+            else:
+                c_kps = self.detector.detect(img, None)
+                c_kps = np.array([x.pt for x in c_kps], dtype=np.float32).reshape((1, -1, 2))
         elif self.detector_name == 'SHI-TOMASI':
-            g_kps = self.detector.detect(img)
+            if self.on_gpu:
+                g_kps = self.detector.detect(img)
+            else:
+                c_kps = cv2.goodFeaturesToTrack(img, **feature_params)
+                c_kps = c_kps.reshape((1, -1, 2))
         elif self.detector_name == 'REGULAR_GRID':
-            # Not very efficient, but regular grid comp. is low
-            img_c = img.download()
-            g_kps = self.regular_grid_detector(img_c)
-        return g_kps
+            if self.on_gpu:
+                g_kps = self.regular_grid_detector()
+            else:
+                c_kps = self.regular_grid_detector()
 
-    def regular_grid_detector(self, img):
-        return self.gpu_rg
+        if self.on_gpu:
+            return g_kps
+        else:
+            return c_kps
+
+    def regular_grid_detector(self):
+        if self.on_gpu:
+            return self.gpu_rg
+        else:
+            return self.cpu_rg
 
     def init_regular_grid_detector(self):
         # Init regular grid
@@ -450,11 +539,14 @@ class VisualOdometry:
         for c in range(n_col):
             for r in range(n_rows):
                 features.append(np.array((c*h_cols, r*h_rows), dtype=np.float32))
-
-        gpu_f = cv2.cuda_GpuMat()
+        
         cpu_f = np.array(features, dtype=np.float32).reshape((1, -1, 2))
-        gpu_f.upload(cpu_f)
-        self.gpu_rg = gpu_f
+        if self.on_gpu:
+            gpu_f = cv2.cuda_GpuMat()
+            gpu_f.upload(cpu_f)
+            self.gpu_rg = gpu_f
+        else:
+            self.cpu_rg = cpu_f
 
     def convert_fts_gpu_to_cpu(self, g_fts):
         if self.detector_name == 'FAST' or self.detector_name == 'ORB':
