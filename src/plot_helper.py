@@ -113,7 +113,7 @@ class PlotHelper():
                     self.fig.canvas.flush_events()
                 
                     # Slow the loop down a bit, this also helps to manage the queue size
-                    factor = 4.0
+                    factor = 2.0
                     sleep(1.0/framerate*factor)
 
         except Exception as e:
@@ -135,7 +135,7 @@ class PlotHelper():
             # Prepare the number of tracked features plot
             self.nfeatures_ax = self.fig.add_subplot(2, 4, 5)
             self.nfeatures_ax.set_title("# tracked landmarks over last 50 frames")
-            self.nfeatures_ax.set_ylim(0, 1500)
+            self.nfeatures_ax.set_ylim(0, 2500)
             self.nfeatures_p = None
 
             # Prepare the full trajectory plot
@@ -153,6 +153,8 @@ class PlotHelper():
             data_thread.start()
 
             # Show the plot
+            # figManager = plt.get_current_fig_manager()
+            # figManager.window.showMaximized()
             plt.show()
 
         except Exception as e:
