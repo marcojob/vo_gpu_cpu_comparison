@@ -131,6 +131,7 @@ dmypy.json
 # Datasets
 datasets/*
 !datasets/README.md
+!datasets/configs.py
 
 # Profiler folder
 profiler/*
