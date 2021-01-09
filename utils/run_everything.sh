@@ -28,3 +28,13 @@ python3 main.py -e SURF -a Malaga -g 1 -l True
 python3 main.py -e ORB -a Malaga -g 1 -l True
 python3 main.py -e SHI-TOMASI -a Malaga -g 1 -l True
 python3 main.py -e REGULAR_GRID -a Malaga -g 1 -l True
+python3 main.py -e FAST -a Parking -g 0 -l True
+python3 main.py -e SURF -a Parking -g 0 -l True
+python3 main.py -e ORB -a Parking -g 0 -l True
+python3 main.py -e SHI-TOMASI -a Parking -g 0 -l True
+python3 main.py -e REGULAR_GRID -a Parking -g 0 -l True
+python3 main.py -e FAST -a Parking -g 1 -l True
+python3 main.py -e SURF -a Parking -g 1 -l True
+python3 main.py -e ORB -a Parking -g 1 -l True
+python3 main.py -e SHI-TOMASI -a Parking -g 1 -l True
+python3 main.py -e REGULAR_GRID -a Parking -g 1 -l True
