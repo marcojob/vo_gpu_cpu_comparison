@@ -11,4 +11,4 @@ In order to run the pipline on a GPU a NVIDIA graphics card is required on the m
 The pipeline can be run with `python main.py -a <DATASET> -e <DETECTOR> -g <NO GPU=0, GPU=1>`. The available detectors are SURF, FAST, ORB, SHI-TOMASI corners and REGULAR_GRID. The available datasets are KITTI, Malaga, Parking and Autobahn.
 
 ### Datasets
-The documentatioopen of the dataset management can be found in `datasets/README.md`
+The documentation of the dataset management can be found in `datasets/README.md`
