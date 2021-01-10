@@ -13,7 +13,7 @@ class VisualOdometry:
         # Choose detector
         self.detector_name = args.detector
 
-        # Determine if to run pipeline on GPU 
+        # Determine if to run pipeline on GPU
         self.on_gpu = args.gpu
 
         # Datasets helper
@@ -270,9 +270,9 @@ class VisualOdometry:
         # Sparse OF
         Profiler.start("klt_tracking")
         if self.on_gpu:
-            self.pre_c_fts, self.cur_c_fts, _ = self.KLT_featureTracking(self.pre_g_frame, self.cur_g_frame, self.pre_g_fts)
+            self.pre_c_fts, self.cur_c_fts = self.KLT_tracking(self.pre_g_frame, self.cur_g_frame, self.pre_g_fts)
         else:
-            self.pre_c_fts, self.cur_c_fts, _ = self.KLT_featureTracking(self.pre_c_frame, self.cur_c_frame, self.pre_c_fts)
+            self.pre_c_fts, self.cur_c_fts = self.KLT_tracking(self.pre_c_frame, self.cur_c_frame, self.pre_c_fts)
         Profiler.end("klt_tracking")
 
         # Reshape features
@@ -380,11 +380,8 @@ class VisualOdometry:
 
         return cloud
 
-    def KLT_featureTracking(self, prev_img, cur_img, prev_fts):
-        # Feature tracking using the Kanade-Lucas-Tomasi tracker
-        
+    def KLT_tracking(self, prev_img, cur_img, prev_fts):
         if self.on_gpu:
-            # Backtracking check
             kp2_g, status, error = self.lk.calc(prev_img, cur_img, prev_fts, None)
             kp1_g, status, error = self.lk.calc(cur_img, prev_img, kp2_g, None)
 
@@ -404,31 +401,21 @@ class VisualOdometry:
         diff = d < MIN_MATCHING_DIFF
 
         # Error Management
-        if len(d) == 0:
-            print('Error: No point correspondance.')
-        # If less than 5 good points, it uses the features obtain without the backtracking check
-        elif list(diff).count(True) <= 5:
-            print('Warning: Few point correspondances')
+        if list(diff).count(True) <= 5:
             return kp1, kp2, MIN_MATCHING_DIFF
 
-        # Create new lists with the good features
+        # Create new list with features that fullfil check
         n_kp1, n_kp2 = [], []
         for i, f in enumerate(diff):
             if f:
                 n_kp1.append(kp1[0][i])
                 n_kp2.append(kp2[0][i])
 
-        # Format the features into float32 numpy arrays
+        # Format features into np array
         n_kp1, n_kp2 = np.array(n_kp1, dtype=np.float32), np.array(
             n_kp2, dtype=np.float32)
 
-        # Verify if the point correspondence points are in the same pixel coordinates
-        d = abs(n_kp1 - n_kp2).reshape(-1, 2).max(-1)
-
-        # The mean of the differences is used to determine the amount of distance between the pixels
-        diff_mean = np.mean(d)
-
-        return n_kp1, n_kp2, diff_mean
+        return n_kp1, n_kp2
 
     def process_first_frame(self, frame):
         # Upload resized frame to GPU
