@@ -1,3 +1,4 @@
+![Example frame](./utils/example_frame.png)
 # VO GPU-CPU Comparison
 This repository aims to show the difference of a monocular VO pipeline running on a GPU versus running on a CPU. On a high level the visual odometry is a achieved by detecting feature points in two subsequent images using the Lucas-Kanade OF tracker. Using the keypoint correspondance the Essential matrix can be estimated and then decomposed into the relative rotation and translation of the two frames. The rotation and translation is tracked globally, which can be used to get a trajectory which is defined up to scale.
 
