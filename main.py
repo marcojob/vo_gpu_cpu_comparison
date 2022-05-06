@@ -1,7 +1,10 @@
-from argparse import ArgumentParser
+import logging
 
+from argparse import ArgumentParser
 from src.vo import VisualOdometry
 
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("vo")
 
 def main():
     parser = ArgumentParser(description='VO pipeline comparison')

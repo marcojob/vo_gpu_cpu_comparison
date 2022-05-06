@@ -25,6 +25,46 @@ configs = {
                              [0.00000000e+00, 1.79429840e+03, 5.45307608e+02],
                              [0.00000000e+00, 0.00000000e+00, 1.00000000e+00]]
     },
+    "Comma0": {
+        "video_file": "calib_challenge/labeled/0.hevc",
+        "resized_frame_size": (1164, 874),
+        "frame_size": (1164, 874),
+        "intrinsic_matrix": [[910.0, 0.0, 582.0],
+                             [0.0, 910.0, 437.0],
+                             [0.0, 0.0, 1.0]]
+    },
+    "Comma1": {
+        "video_file": "calib_challenge/labeled/1.hevc",
+        "resized_frame_size": (1164, 874),
+        "frame_size": (1164, 874),
+        "intrinsic_matrix": [[910.0, 0.0, 582.0],
+                             [0.0, 910.0, 437.0],
+                             [0.0, 0.0, 1.0]]
+    },
+    "Comma2": {
+        "video_file": "calib_challenge/labeled/2.hevc",
+        "resized_frame_size": (1164, 874),
+        "frame_size": (1164, 874),
+        "intrinsic_matrix": [[910.0, 0.0, 582.0],
+                             [0.0, 910.0, 437.0],
+                             [0.0, 0.0, 1.0]]
+    },
+    "Comma3": {
+        "video_file": "calib_challenge/labeled/3.hevc",
+        "resized_frame_size": (1164, 874),
+        "frame_size": (1164, 874),
+        "intrinsic_matrix": [[910.0, 0.0, 582.0],
+                             [0.0, 910.0, 437.0],
+                             [0.0, 0.0, 1.0]]
+    },
+    "Comma4": {
+        "video_file": "calib_challenge/labeled/4.hevc",
+        "resized_frame_size": (1164, 874),
+        "frame_size": (1164, 874),
+        "intrinsic_matrix": [[910.0, 0.0, 582.0],
+                             [0.0, 910.0, 437.0],
+                             [0.0, 0.0, 1.0]]
+    },
     "Parking": {
         "images_dir": "parking/images",
         "images_pattern": "img_([0-9]*).png",

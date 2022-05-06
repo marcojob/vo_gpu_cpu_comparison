@@ -2,6 +2,7 @@ from pathlib import Path
 import glob
 import re
 import cv2
+import numpy as np
 
 from datasets.configs import configs
 
@@ -51,7 +52,8 @@ class DatasetsHelper():
             while ret:
                 ret, img = cap.read()
                 if ret == True:
-                    yield img
+                    self.i += 1
+                    yield np.copy(img)
 
 
     @property
